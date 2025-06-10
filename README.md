@@ -1,11 +1,11 @@
-# Dawn vs Dusk
+# Pong Wars
 
 <!-- 🎥 Demo Videos 🎥 -->
 <!-- - [Prototype](link) -->
 
 ## About
 
-- Dawn vs Dusk is a simple weekend project that I made in C to practice creating applications with their own window to display graphics.
+- The Pong Wars project (AKA: Day vs Night) is a simple weekend project that I made in C to practice creating applications with their own window to display graphics.
 <!-- - I also wanted to try putting it on an OLED screen to practice my embedded systems skills so I made a small device for the program to run on using (microcontroller). -->
 - I plan on making an embedded device for the program to run on at a later date.
 - C using Arduino IDE

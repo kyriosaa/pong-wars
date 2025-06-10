@@ -2,7 +2,9 @@
 
 <!-- 🎥 Demo Videos 🎥 -->
 <!-- - [Prototype](link) -->
-![Day vs Night GIF](./media/dayvsnight.gif)
+<div align="center">
+  <img src="./media/dayvsnight.gif" alt="Day vs Night GIF" width="300">
+</div>
 
 ## About
 

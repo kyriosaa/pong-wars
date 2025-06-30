@@ -22,8 +22,12 @@ int grid[GRID_SIZE_Y][GRID_SIZE_X];
 // circle positions & velocities
 float leftCircleX = 8.0f, leftCircleY = 8.0f;     
 float leftVelX = 0.8f, leftVelY = -0.8f;
-float rightCircleX = 24.0f, rightCircleY = 8.0f; 
+float rightCircleX = 24.0f, rightCircleY = 8.0f;  
 float rightVelX = -0.8f, rightVelY = 0.8f;
+
+// counters
+  int dayCount = 0;
+  int nightCount = 0;
 
 unsigned long lastUpdate = 0;
 const int UPDATE_INTERVAL = 16; // framerate basically (lower num = higher framerate) (its currently ~60FPS)
@@ -55,13 +59,6 @@ void InitializeGrid() {
           // LEFT
           if (j < middleColumn) {
               grid[i][j] = 0; // white = 0
-          // MIDDLE - half white, half black
-          } else if (j == middleColumn) {
-              if (i < GRID_SIZE_Y / 2) {
-                  grid[i][j] = 0; // top half = white (0)
-              } else {
-                  grid[i][j] = 1; // bottom half = black (1)
-              }
           // RIGHT
           } else {
               grid[i][j] = 1; // black = 1
@@ -149,8 +146,8 @@ void UpdateCircles() {
     }
     
     // checks collision with grid cells
-    gridX = (int)rightCircleX;
-    gridY = (int)rightCircleY;
+    gridX = (int)round(rightCircleX);  
+    gridY = (int)round(rightCircleY);
     if (gridX >= 0 && gridX < GRID_SIZE_X && gridY >= 0 && gridY < GRID_SIZE_Y) {
         if (grid[gridY][gridX] == 0) { // if a white cell is hit...
             grid[gridY][gridX] = 1; // turn it black
@@ -163,6 +160,22 @@ void UpdateCircles() {
         }
     }
     // END RIGHT HALF
+}
+
+// counts the squares for the counters
+void CountSquares(int* dayCount, int* nightCount) {
+    *dayCount = 0;
+    *nightCount = 0;
+    
+    for (int i = 0; i < GRID_SIZE_Y; i++) {
+        for (int j = 0; j < GRID_SIZE_X; j++) {
+            if (grid[i][j] == 0) {
+                (*dayCount)++;
+            } else {
+                (*nightCount)++;
+            }
+        }
+    }
 }
 
 void DrawGame() {
@@ -195,8 +208,30 @@ void DrawGame() {
     
     // right circle (white on black background)
     display.fillCircle(rightX, rightY, CIRCLE_RADIUS, SSD1306_WHITE);
-    
-    display.display();
+}
+
+void DrawNames() {
+  // tweaks the position of the names
+  int dayPosX = 12;
+  int dayPosY = 117;
+  int nightPosX = 5;
+  int nightPosY = 120;
+
+  display.setTextSize(1);
+
+  display.setRotation(1); // 90 deg
+  display.setCursor(dayPosX, dayPosY);
+  display.setTextColor(SSD1306_BLACK);
+  display.print(F("Day:"));
+  display.println(dayCount);
+
+  display.setRotation(3); // 270 deg
+  display.setCursor(nightPosX, nightPosY);
+  display.setTextColor(SSD1306_WHITE);
+  display.print(F("Night:"));
+  display.println(nightCount);
+
+  display.setRotation(0); // reset
 }
 
 void setup() {
@@ -212,11 +247,11 @@ void setup() {
     }
     
     display.clearDisplay();
-    display.setTextSize(1);
+    display.setTextSize(2);
     display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0,0);
-    display.println(F("Pong Wars"));
-    display.println(F("Starting..."));
+    display.setCursor(0,17);
+    display.println(F("Pong"));
+    display.println(F("Wars"));
     display.display();
     delay(2000);
     
@@ -229,7 +264,10 @@ void loop() {
     
     if (currentTime - lastUpdate >= UPDATE_INTERVAL) {
         UpdateCircles();
+        CountSquares(&dayCount, &nightCount);
         DrawGame();
+        DrawNames();
+        display.display();
         lastUpdate = currentTime;
     }
 }

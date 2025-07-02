@@ -1,23 +1,44 @@
+// For ESP32
+
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
 
+// component defines
+#define BUTTON_PIN      5       // D5
+#define BUZZER_PIN      2       // D2 - PWM
+#define BUZZER_DAY      1250    // Hz noise of day circle when it hits a cell
+#define BUZZER_NIGHT    750     // Hz noise of night circle when it hits a cell
+#define POT_DAY_PIN     12      // ADC2_CH5
+#define POT_NIGHT_PIN   13      // ADC2_CH4
+#define POT_THRESHOLD   2       // min change to update circle angle
+#define POT_MIN_ANGLE   0       
+#define POT_MAX_ANGLE   314     // maps to π radians (314/100 = 3.14)
+#define POT_DIVISOR     100.0f  // the thing dividing the max angle
+#define ADC_MIN         0       // Analog2Digital Converter min reading
+#define ADC_MAX         1023    // Analog2Digital Converter max reading
+
 // screen defines
-#define SCREEN_WIDTH    128
-#define SCREEN_HEIGHT   64
-#define SCREEN_ADDRESS  0x3C
+#define SCREEN_WIDTH    128     // OLED screen length
+#define SCREEN_HEIGHT   64      // OLED screen height
+#define SCREEN_ADDRESS  0x3C    // A4->DATA | A5->CLOCK
 #define OLED_RESET      -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// pong defines
-#define BUTTON_PIN      5
-#define GRID_SIZE_X     32
-#define GRID_SIZE_Y     16
-#define CELL_SIZE       4
-#define CIRCLE_RADIUS   2
+// game defines
+#define GRID_SIZE_X     32      // overall length of grid (128x64 OLED -> 32x16 grid)
+#define GRID_SIZE_Y     16      // overall height of grid (128x64 OLED -> 32x16 grid)
+#define CELL_SIZE       4       // size of grid cells
+#define CIRCLE_RADIUS   2       // radius of circle
+#define CIRCLE_SPEED    0.5f    // speed of circle
+#define ANGLE_RAND      0.2f    // rand for wall bounces
+#define COLLISION_RAND  0.3f    // rand for cell collisions
+#define AIM_LINE_LENGTH 15      // length of the aim line
+#define CIRCLE_BOUND    1       // distance from walls
 
-// potentiometer defines
-#define POT_NIGHT_PIN   13
+// seed defines
+#define RAND_MULTIPLIER 1000    // for the RandomFloat() func
+#define RAND_DIVISOR    1000.0f
 
 // white = 0
 // black = 1
@@ -28,8 +49,10 @@ float leftCircleX = 8.0f, leftCircleY = 8.0f;
 float leftVelX = 0.8f, leftVelY = -0.8f;
 float rightCircleX = 24.0f, rightCircleY = 8.0f;  
 float rightVelX = -0.8f, rightVelY = 0.8f;
+float dayCircleAngle = 0.0f;
 float nightCircleAngle = 0.0f;
-bool angleChanged = false;
+bool dayAngleChanged = false;
+bool nightAngleChanged = false;
 
 // game state
 bool gameRunning = false;
@@ -42,18 +65,19 @@ int dayCount = 0;
 int nightCount = 0;
 
 // potentiometer
-int lastPotValue = 0;
+int lastDayPotValue = 0;
+int lastNightPotValue = 0;
 
 unsigned long lastUpdate = 0;
 const int UPDATE_INTERVAL = 16; // framerate basically (lower num = higher framerate) (its currently ~60FPS)
 
 float RandomFloat() {
-    return (float)random(0, 1000) / 1000.0f;
+    return (float)random(0, RAND_MULTIPLIER) / RAND_DIVISOR;
 }
 
 void InitializeGrid() {
   // i want the balls to be the same speed when the program starts
-  float speed = 0.5f;
+  float speed = CIRCLE_SPEED;
   
   // creates random angles for each circle using pi
   float pi = 3.14159f;
@@ -83,33 +107,39 @@ void InitializeGrid() {
 }
 
 void UpdateCircles() {
-    // THIS IS FOR THE LEFT HALF (WHITE CIRCLE)
+    // THIS IS FOR THE DAY HALF (WHITE CIRCLE)
+    if(dayAngleChanged) {
+        float speed = sqrt(leftVelX * leftVelX + leftVelY * leftVelY);
+        leftVelX = cos(dayCircleAngle) * speed;
+        leftVelY = sin(dayCircleAngle) * speed;
+        dayAngleChanged = false;
+    }
     leftCircleX += leftVelX;
     leftCircleY += leftVelY;
     
     // handles the wall bounces
-    if (leftCircleX <= 1 || leftCircleX >= GRID_SIZE_X - 1) {
+    if (leftCircleX <= CIRCLE_BOUND || leftCircleX >= GRID_SIZE_X - CIRCLE_BOUND) {
         leftVelX = -leftVelX;
 
         // this stuff makes sure the balls stay in bounds
-        if (leftCircleX <= 1) leftCircleX = 1;
-        if (leftCircleX >= GRID_SIZE_X - 1) leftCircleX = GRID_SIZE_X - 1;
+        if (leftCircleX <= CIRCLE_BOUND) leftCircleX = CIRCLE_BOUND;
+        if (leftCircleX >= GRID_SIZE_X - CIRCLE_BOUND) leftCircleX = GRID_SIZE_X - CIRCLE_BOUND;
         
         // everytime the balls bounce it changes the angle a bit
         // bcs otherwise the balls would draw an identical path
         float speed = sqrt(leftVelX * leftVelX + leftVelY * leftVelY);
-        float angle = atan2(leftVelY, leftVelX) + (RandomFloat() - 0.5f) * 0.2f;
+        float angle = atan2(leftVelY, leftVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
         leftVelX = cos(angle) * speed;
         leftVelY = sin(angle) * speed;
     }
-    if (leftCircleY <= 1 || leftCircleY >= GRID_SIZE_Y - 1) {
+    if (leftCircleY <= CIRCLE_BOUND || leftCircleY >= GRID_SIZE_Y - CIRCLE_BOUND) {
         leftVelY = -leftVelY;
 
-        if (leftCircleY <= 1) leftCircleY = 1;
-        if (leftCircleY >= GRID_SIZE_Y - 1) leftCircleY = GRID_SIZE_Y - 1;
+        if (leftCircleY <= CIRCLE_BOUND) leftCircleY = CIRCLE_BOUND;
+        if (leftCircleY >= GRID_SIZE_Y - CIRCLE_BOUND) leftCircleY = GRID_SIZE_Y - CIRCLE_BOUND;
         
         float speed = sqrt(leftVelX * leftVelX + leftVelY * leftVelY);
-        float angle = atan2(leftVelY, leftVelX) + (RandomFloat() - 0.5f) * 0.2f;
+        float angle = atan2(leftVelY, leftVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
         leftVelX = cos(angle) * speed;
         leftVelY = sin(angle) * speed;
     }
@@ -120,48 +150,51 @@ void UpdateCircles() {
     if (gridX >= 0 && gridX < GRID_SIZE_X && gridY >= 0 && gridY < GRID_SIZE_Y) {
         if (grid[gridY][gridX] == 1) { // if a black cell is hit...
             grid[gridY][gridX] = 0; // turn it white
+            tone(BUZZER_PIN, BUZZER_DAY);
+            delay(10);
+            tone(BUZZER_PIN, 0);
 
             // same angle change code
             float speed = sqrt(leftVelX * leftVelX + leftVelY * leftVelY);
-            float angle = atan2(-leftVelY, -leftVelX) + (RandomFloat() - 0.5f) * 0.3f;
+            float angle = atan2(-leftVelY, -leftVelX) + (RandomFloat() - 0.5f) * COLLISION_RAND;
             leftVelX = cos(angle) * speed;
             leftVelY = sin(angle) * speed;
         }
     }
-    // END LEFT HALF
+    // END DAY HALF
     
-    // THIS IS FOR THE RIGHT HALF (BLACK CIRCLE)
-    if(angleChanged) {
+    // THIS IS FOR THE NIGHT HALF (BLACK CIRCLE)
+    if(nightAngleChanged) {
         float speed = sqrt(rightVelX * rightVelX + rightVelY * rightVelY);
         rightVelX = cos(nightCircleAngle) * speed;
         rightVelY = sin(nightCircleAngle) * speed;
-        angleChanged = false;
+        nightAngleChanged = false;
     }
     rightCircleX += rightVelX;
     rightCircleY += rightVelY;
     
     // handles the wall bounces
-    if (rightCircleX <= 1 || rightCircleX >= GRID_SIZE_X - 1) {
+    if (rightCircleX <= CIRCLE_BOUND || rightCircleX >= GRID_SIZE_X - CIRCLE_BOUND) {
         rightVelX = -rightVelX;
         // this stuff makes sure the balls stay in bounds
-        if (rightCircleX <= 1) rightCircleX = 1;
-        if (rightCircleX >= GRID_SIZE_X - 1) rightCircleX = GRID_SIZE_X - 1;
+        if (rightCircleX <= CIRCLE_BOUND) rightCircleX = CIRCLE_BOUND;
+        if (rightCircleX >= GRID_SIZE_X - CIRCLE_BOUND) rightCircleX = GRID_SIZE_X - CIRCLE_BOUND;
         
         // everytime the balls bounce it changes the angle a bit
         // bcs otherwise the balls would draw an identical path
         float speed = sqrt(rightVelX * rightVelX + rightVelY * rightVelY);
-        float angle = atan2(rightVelY, rightVelX) + (RandomFloat() - 0.5f) * 0.2f;
+        float angle = atan2(rightVelY, rightVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
         rightVelX = cos(angle) * speed;
         rightVelY = sin(angle) * speed;
     }
-    if (rightCircleY <= 1 || rightCircleY >= GRID_SIZE_Y - 1) {
+    if (rightCircleY <= CIRCLE_BOUND || rightCircleY >= GRID_SIZE_Y - CIRCLE_BOUND) {
         rightVelY = -rightVelY;
        
-        if (rightCircleY <= 1) rightCircleY = 1;
-        if (rightCircleY >= GRID_SIZE_Y - 1) rightCircleY = GRID_SIZE_Y - 1;
+        if (rightCircleY <= CIRCLE_BOUND) rightCircleY = CIRCLE_BOUND;
+        if (rightCircleY >= GRID_SIZE_Y - CIRCLE_BOUND) rightCircleY = GRID_SIZE_Y - CIRCLE_BOUND;
         
         float speed = sqrt(rightVelX * rightVelX + rightVelY * rightVelY);
-        float angle = atan2(rightVelY, rightVelX) + (RandomFloat() - 0.5f) * 0.2f;
+        float angle = atan2(rightVelY, rightVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
         rightVelX = cos(angle) * speed;
         rightVelY = sin(angle) * speed;
     }
@@ -172,15 +205,18 @@ void UpdateCircles() {
     if (gridX >= 0 && gridX < GRID_SIZE_X && gridY >= 0 && gridY < GRID_SIZE_Y) {
         if (grid[gridY][gridX] == 0) { // if a white cell is hit...
             grid[gridY][gridX] = 1; // turn it black
+            tone(BUZZER_PIN, BUZZER_NIGHT);
+            delay(10);
+            tone(BUZZER_PIN, 0);
             
             // same angle change code
             float speed = sqrt(rightVelX * rightVelX + rightVelY * rightVelY);
-            float angle = atan2(-rightVelY, -rightVelX) + (RandomFloat() - 0.5f) * 0.3f;
+            float angle = atan2(-rightVelY, -rightVelX) + (RandomFloat() - 0.5f) * COLLISION_RAND;
             rightVelX = cos(angle) * speed;
             rightVelY = sin(angle) * speed;
         }
     }
-    // END RIGHT HALF
+    // END NIGHT HALF
 }
 
 // counts the squares for the counters
@@ -232,12 +268,15 @@ void DrawGame() {
 
     // draw angle line
     if(!gameRunning) {
-        int lineLength = 15;
-        int endX = rightX + (int)(cos(nightCircleAngle) * lineLength);
-        int endY = rightY + (int)(sin(nightCircleAngle) * lineLength);
+        // DAY
+        int dayEndX = leftX + (int)(cos(dayCircleAngle) * AIM_LINE_LENGTH);
+        int dayEndY = leftY + (int)(sin(dayCircleAngle) * AIM_LINE_LENGTH);
+        display.drawLine(leftX, leftY, dayEndX, dayEndY, SSD1306_BLACK);
 
-        // line color
-        display.drawLine(rightX, rightY, endX, endY, SSD1306_WHITE);
+        // NIGHT
+        int nightEndX = rightX + (int)(cos(nightCircleAngle) * AIM_LINE_LENGTH);
+        int nightEndY = rightY + (int)(sin(nightCircleAngle) * AIM_LINE_LENGTH);
+        display.drawLine(rightX, rightY, nightEndX, nightEndY, SSD1306_WHITE);
     }
 }
 
@@ -268,13 +307,21 @@ void DrawNames() {
 // use potentiometer to change angle of circles
 void ReadPotentiometer() {
     if(!gameRunning) {
-        int potValue = analogRead(POT_NIGHT_PIN);
-        
+        // DAY
+        int dayPotValue = analogRead(POT_DAY_PIN);
         // only update if there's a significant change
-        if(abs(potValue - lastPotValue) > 5) {
+        if(abs(dayPotValue - lastDayPotValue) > POT_THRESHOLD) {
             // map the potentiometer value (0-1023) to angle (0 to π)
-            nightCircleAngle = map(potValue, 0, 1023, 0, 314) / 100.0f; // 314/100 = 3.14 ≈ π
-            lastPotValue = potValue;
+            dayCircleAngle = map(dayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+            lastDayPotValue = dayPotValue;
+        }
+        // NIGHT
+        int nightPotValue = analogRead(POT_NIGHT_PIN);
+        // only update if there's a significant change
+        if(abs(nightPotValue - lastNightPotValue) > POT_THRESHOLD) {
+            // map the potentiometer value (0-1023) to angle (0 to π)
+            nightCircleAngle = map(nightPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+            lastNightPotValue = nightPotValue;
         }
     }
 }
@@ -282,6 +329,7 @@ void ReadPotentiometer() {
 void setup() {
     Serial.begin(115200);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
+    pinMode(BUZZER_PIN, OUTPUT);
     
     // init random seed
     randomSeed(analogRead(0));
@@ -293,7 +341,9 @@ void setup() {
     }
 
     // init potentiometer
-    lastPotValue = analogRead(POT_NIGHT_PIN);
+    lastDayPotValue = analogRead(POT_DAY_PIN);
+    lastNightPotValue = analogRead(POT_NIGHT_PIN);
+    dayCircleAngle = 0.0f;
     nightCircleAngle = 0.0f;
     
     // boot screen
@@ -319,16 +369,15 @@ void loop() {
         gameRunning = !gameRunning;
 
         if(gameRunning) {
-            angleChanged = true;
+            dayAngleChanged = true;
+            nightAngleChanged = true;
         }
     }
     
     lastButtonState = currentButtonState;
 
-    int currentUpdateInterval = 16;
-
     unsigned long currentTime = millis();
-    if (currentTime - lastUpdate >= currentUpdateInterval) {
+    if (currentTime - lastUpdate >= UPDATE_INTERVAL) {
         if(gameRunning) {
             UpdateCircles();
         }

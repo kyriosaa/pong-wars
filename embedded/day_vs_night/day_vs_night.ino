@@ -2,19 +2,22 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-
-#define BUTTON_PIN 5
-#define SCREEN_ADDRESS 0x3C
-#define OLED_RESET    -1
+// screen defines
+#define SCREEN_WIDTH    128
+#define SCREEN_HEIGHT   64
+#define SCREEN_ADDRESS  0x3C
+#define OLED_RESET      -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// for pong game
-#define GRID_SIZE_X 32
-#define GRID_SIZE_Y 16
-#define CELL_SIZE 4
-#define CIRCLE_RADIUS 2
+// pong defines
+#define BUTTON_PIN      5
+#define GRID_SIZE_X     32
+#define GRID_SIZE_Y     16
+#define CELL_SIZE       4
+#define CIRCLE_RADIUS   2
+
+// potentiometer defines
+#define POT_NIGHT_PIN   13
 
 // white = 0
 // black = 1
@@ -25,16 +28,21 @@ float leftCircleX = 8.0f, leftCircleY = 8.0f;
 float leftVelX = 0.8f, leftVelY = -0.8f;
 float rightCircleX = 24.0f, rightCircleY = 8.0f;  
 float rightVelX = -0.8f, rightVelY = 0.8f;
+float nightCircleAngle = 0.0f;
+bool angleChanged = false;
 
 // game state
 bool gameRunning = false;
 bool lastButtonState = false;
 unsigned long lastPressTime = 0;
-const int debounceDelay = 200;
+const int buttonDebounceDelay = 200;
 
 // counters
 int dayCount = 0;
 int nightCount = 0;
+
+// potentiometer
+int lastPotValue = 0;
 
 unsigned long lastUpdate = 0;
 const int UPDATE_INTERVAL = 16; // framerate basically (lower num = higher framerate) (its currently ~60FPS)
@@ -123,6 +131,12 @@ void UpdateCircles() {
     // END LEFT HALF
     
     // THIS IS FOR THE RIGHT HALF (BLACK CIRCLE)
+    if(angleChanged) {
+        float speed = sqrt(rightVelX * rightVelX + rightVelY * rightVelY);
+        rightVelX = cos(nightCircleAngle) * speed;
+        rightVelY = sin(nightCircleAngle) * speed;
+        angleChanged = false;
+    }
     rightCircleX += rightVelX;
     rightCircleY += rightVelY;
     
@@ -215,6 +229,16 @@ void DrawGame() {
     
     // right circle (white on black background)
     display.fillCircle(rightX, rightY, CIRCLE_RADIUS, SSD1306_WHITE);
+
+    // draw angle line
+    if(!gameRunning) {
+        int lineLength = 15;
+        int endX = rightX + (int)(cos(nightCircleAngle) * lineLength);
+        int endY = rightY + (int)(sin(nightCircleAngle) * lineLength);
+
+        // line color
+        display.drawLine(rightX, rightY, endX, endY, SSD1306_WHITE);
+    }
 }
 
 void DrawNames() {
@@ -241,6 +265,20 @@ void DrawNames() {
   display.setRotation(0); // reset
 }
 
+// use potentiometer to change angle of circles
+void ReadPotentiometer() {
+    if(!gameRunning) {
+        int potValue = analogRead(POT_NIGHT_PIN);
+        
+        // only update if there's a significant change
+        if(abs(potValue - lastPotValue) > 5) {
+            // map the potentiometer value (0-1023) to angle (0 to π)
+            nightCircleAngle = map(potValue, 0, 1023, 0, 314) / 100.0f; // 314/100 = 3.14 ≈ π
+            lastPotValue = potValue;
+        }
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -253,7 +291,12 @@ void setup() {
         Serial.println(F("SSD1306 allocation failed"));
         for(;;);
     }
+
+    // init potentiometer
+    lastPotValue = analogRead(POT_NIGHT_PIN);
+    nightCircleAngle = 0.0f;
     
+    // boot screen
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(SSD1306_WHITE);
@@ -268,16 +311,24 @@ void setup() {
 }
 
 void loop() {
+    ReadPotentiometer();
+
     bool currentButtonState = digitalRead(BUTTON_PIN) == LOW;
-    if(currentButtonState && !lastButtonState && millis() - lastPressTime > debounceDelay) {
+    if(currentButtonState && !lastButtonState && millis() - lastPressTime > buttonDebounceDelay) {
         lastPressTime = millis();
         gameRunning = !gameRunning;
+
+        if(gameRunning) {
+            angleChanged = true;
+        }
     }
     
     lastButtonState = currentButtonState;
 
+    int currentUpdateInterval = 16;
+
     unsigned long currentTime = millis();
-    if (currentTime - lastUpdate >= UPDATE_INTERVAL) {
+    if (currentTime - lastUpdate >= currentUpdateInterval) {
         if(gameRunning) {
             UpdateCircles();
         }

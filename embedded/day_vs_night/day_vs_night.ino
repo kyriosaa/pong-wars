@@ -5,6 +5,7 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 
+#define BUTTON_PIN 5
 #define SCREEN_ADDRESS 0x3C
 #define OLED_RESET    -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -25,9 +26,15 @@ float leftVelX = 0.8f, leftVelY = -0.8f;
 float rightCircleX = 24.0f, rightCircleY = 8.0f;  
 float rightVelX = -0.8f, rightVelY = 0.8f;
 
+// game state
+bool gameRunning = false;
+bool lastButtonState = false;
+unsigned long lastPressTime = 0;
+const int debounceDelay = 200;
+
 // counters
-  int dayCount = 0;
-  int nightCount = 0;
+int dayCount = 0;
+int nightCount = 0;
 
 unsigned long lastUpdate = 0;
 const int UPDATE_INTERVAL = 16; // framerate basically (lower num = higher framerate) (its currently ~60FPS)
@@ -236,6 +243,7 @@ void DrawNames() {
 
 void setup() {
     Serial.begin(115200);
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
     
     // init random seed
     randomSeed(analogRead(0));
@@ -260,10 +268,19 @@ void setup() {
 }
 
 void loop() {
-    unsigned long currentTime = millis();
+    bool currentButtonState = digitalRead(BUTTON_PIN) == LOW;
+    if(currentButtonState && !lastButtonState && millis() - lastPressTime > debounceDelay) {
+        lastPressTime = millis();
+        gameRunning = !gameRunning;
+    }
     
+    lastButtonState = currentButtonState;
+
+    unsigned long currentTime = millis();
     if (currentTime - lastUpdate >= UPDATE_INTERVAL) {
-        UpdateCircles();
+        if(gameRunning) {
+            UpdateCircles();
+        }
         CountSquares(&dayCount, &nightCount);
         DrawGame();
         DrawNames();

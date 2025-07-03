@@ -9,11 +9,11 @@
 #define BUZZER_PIN      2       // D2 - PWM
 #define BUZZER_DAY      1250    // Hz noise of day circle when it hits a cell
 #define BUZZER_NIGHT    750     // Hz noise of night circle when it hits a cell
-#define POT_DAY_PIN     12      // ADC2_CH5
-#define POT_NIGHT_PIN   13      // ADC2_CH4
+#define POT_DAY_PIN     32      // ADC1_CH5
+#define POT_NIGHT_PIN   33      // ADC1_CH4
 #define POT_THRESHOLD   2       // min change to update circle angle
 #define POT_MIN_ANGLE   0       
-#define POT_MAX_ANGLE   314     // maps to π radians (314/100 = 3.14)
+#define POT_MAX_ANGLE   157     // maps to π radians
 #define POT_DIVISOR     100.0f  // the thing dividing the max angle
 #define ADC_MIN         0       // Analog2Digital Converter min reading
 #define ADC_MAX         1023    // Analog2Digital Converter max reading
@@ -26,6 +26,7 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // game defines
+#define PI              3.1415f // π π π pi π π π
 #define GRID_SIZE_X     32      // overall length of grid (128x64 OLED -> 32x16 grid)
 #define GRID_SIZE_Y     16      // overall height of grid (128x64 OLED -> 32x16 grid)
 #define CELL_SIZE       4       // size of grid cells
@@ -35,10 +36,13 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define COLLISION_RAND  0.3f    // rand for cell collisions
 #define AIM_LINE_LENGTH 15      // length of the aim line
 #define CIRCLE_BOUND    1       // distance from walls
+#define COLOR_WHITE     SSD1306_WHITE
+#define COLOR_BLACK     SSD1306_BLACK
 
 // seed defines
 #define RAND_MULTIPLIER 1000    // for the RandomFloat() func
 #define RAND_DIVISOR    1000.0f
+
 
 // white = 0
 // black = 1
@@ -80,9 +84,8 @@ void InitializeGrid() {
   float speed = CIRCLE_SPEED;
   
   // creates random angles for each circle using pi
-  float pi = 3.14159f;
-  float leftAngle = RandomFloat() * 2 * pi; 
-  float rightAngle = RandomFloat() * 2 * pi;
+  float leftAngle = RandomFloat() * 2 * PI; 
+  float rightAngle = RandomFloat() * 2 * PI;
   
   // calc velocities w same speed but different directions
   leftVelX = cos(leftAngle) * speed;
@@ -246,10 +249,10 @@ void DrawGame() {
             
             if (grid[i][j] == 0) {
                 // white cells (day) - draw white rectangles
-                display.fillRect(x, y, CELL_SIZE, CELL_SIZE, SSD1306_WHITE);
+                display.fillRect(x, y, CELL_SIZE, CELL_SIZE, COLOR_WHITE);
             } else {
                 // black cells (night) - draw black rectangles
-                display.fillRect(x, y, CELL_SIZE, CELL_SIZE, SSD1306_BLACK);
+                display.fillRect(x, y, CELL_SIZE, CELL_SIZE, COLOR_BLACK);
             }
         }
     }
@@ -261,22 +264,22 @@ void DrawGame() {
     int rightY = (int)(rightCircleY * CELL_SIZE);
     
     // left circle (black on white background)
-    display.fillCircle(leftX, leftY, CIRCLE_RADIUS, SSD1306_BLACK);
+    display.fillCircle(leftX, leftY, CIRCLE_RADIUS, COLOR_BLACK);
     
     // right circle (white on black background)
-    display.fillCircle(rightX, rightY, CIRCLE_RADIUS, SSD1306_WHITE);
+    display.fillCircle(rightX, rightY, CIRCLE_RADIUS, COLOR_WHITE);
 
     // draw angle line
     if(!gameRunning) {
         // DAY
         int dayEndX = leftX + (int)(cos(dayCircleAngle) * AIM_LINE_LENGTH);
         int dayEndY = leftY + (int)(sin(dayCircleAngle) * AIM_LINE_LENGTH);
-        display.drawLine(leftX, leftY, dayEndX, dayEndY, SSD1306_BLACK);
+        display.drawLine(leftX, leftY, dayEndX, dayEndY, COLOR_BLACK);
 
         // NIGHT
         int nightEndX = rightX + (int)(cos(nightCircleAngle) * AIM_LINE_LENGTH);
         int nightEndY = rightY + (int)(sin(nightCircleAngle) * AIM_LINE_LENGTH);
-        display.drawLine(rightX, rightY, nightEndX, nightEndY, SSD1306_WHITE);
+        display.drawLine(rightX, rightY, nightEndX, nightEndY, COLOR_WHITE);
     }
 }
 
@@ -291,13 +294,13 @@ void DrawNames() {
 
   display.setRotation(1); // 90 deg
   display.setCursor(dayPosX, dayPosY);
-  display.setTextColor(SSD1306_BLACK);
+  display.setTextColor(COLOR_BLACK);
   display.print(F("Day:"));
   display.println(dayCount);
 
   display.setRotation(3); // 270 deg
   display.setCursor(nightPosX, nightPosY);
-  display.setTextColor(SSD1306_WHITE);
+  display.setTextColor(COLOR_WHITE);
   display.print(F("Night:"));
   display.println(nightCount);
 
@@ -312,7 +315,8 @@ void ReadPotentiometer() {
         // only update if there's a significant change
         if(abs(dayPotValue - lastDayPotValue) > POT_THRESHOLD) {
             // map the potentiometer value (0-1023) to angle (0 to π)
-            dayCircleAngle = map(dayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+            float unmappedDayCircleAngle = map(dayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+            dayCircleAngle = PI - unmappedDayCircleAngle;   // so the aim is flipped horizontally
             lastDayPotValue = dayPotValue;
         }
         // NIGHT
@@ -349,7 +353,7 @@ void setup() {
     // boot screen
     display.clearDisplay();
     display.setTextSize(2);
-    display.setTextColor(SSD1306_WHITE);
+    display.setTextColor(COLOR_WHITE);
     display.setCursor(0,17);
     display.println(F("Pong"));
     display.println(F("Wars"));

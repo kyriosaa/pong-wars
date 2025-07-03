@@ -68,7 +68,7 @@ bool lastDayButtonState = false;        // tracks day circle's input management
 bool lastNightButtonState = false;      // tracks night circle's input management
 unsigned long lastDayPressTime = 0;     // how long ago was the day button pressed? (for debounce)
 unsigned long lastNightPressTime = 0;   // how long ago was the night button pressed? (for debounce)
-const int buttonDebounceDelay = 200;    // debounce delay
+const int buttonDebounceDelay = 1000;   // debounce delay
 
 // counters
 int dayCount = 0;       // counts how many grid cells is white

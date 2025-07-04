@@ -5,8 +5,7 @@
 #include <Adafruit_GFX.h>
 
 // component defines
-#define BTN_DAY_PIN     18      // D18
-#define BTN_NIGHT_PIN   5       // D5
+#define BTN_RESET_PIN   5       // D5
 #define BUZZER_PIN      2       // D2 - PWM
 #define BUZZER_DAY      1250    // Hz noise of day circle when it hits a cell
 #define BUZZER_NIGHT    750     // Hz noise of night circle when it hits a cell
@@ -33,10 +32,14 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define CELL_SIZE       4       // size of grid cells
 #define CIRCLE_RADIUS   2       // radius of circle
 #define CIRCLE_SPEED    0.5f    // speed of circle
-#define ANGLE_RAND      0.2f    // rand for wall bounces
+#define CIRCLE_BOUND    0       // distance from walls
+#define ANGLE_RAND      0.0f    // rand for wall bounces
 #define COLLISION_RAND  0.3f    // rand for cell collisions
 #define AIM_LINE_LENGTH 15      // length of the aim line
-#define CIRCLE_BOUND    1       // distance from walls
+#define PADDLE_WIDTH    1       // width of paddle
+#define PADDLE_HEIGHT   4       // height of paddle
+#define PADDLE_OFFSET   3       // distance from left/right edge (depends on side)
+#define PADDLE_SENS     350.0f  // keeps the paddle from going off screen by slowing it down (idk if this changes depending on the screen size)
 #define COLOR_WHITE     SSD1306_WHITE
 #define COLOR_BLACK     SSD1306_BLACK
 
@@ -59,16 +62,15 @@ float nightCircleAngle = 0.0f;
 bool dayAngleChanged = false;
 bool nightAngleChanged = false;
 
+// paddle positions
+float dayPaddleY = 6.0f;
+float nightPaddleY = 6.0f;
+
 // game state
 bool gameStarted = false;               // tracks whether the game has started (for sync start)
-bool initialStart = true;               // tracks whether this is the first start since reset (for sync start)
-bool dayRunning = false;                // tracks the day circle's state
-bool nightRunning = false;              // tracks the night circle's state
-bool lastDayButtonState = false;        // tracks day circle's input management
-bool lastNightButtonState = false;      // tracks night circle's input management
-unsigned long lastDayPressTime = 0;     // how long ago was the day button pressed? (for debounce)
-unsigned long lastNightPressTime = 0;   // how long ago was the night button pressed? (for debounce)
-const int buttonDebounceDelay = 1000;   // debounce delay
+bool lastButtonState = false;           // tracks button input management
+unsigned long lastButtonPressTime = 0;   // button debounce timing
+const int buttonDebounceDelay = 200;   // debounce delay
 
 // counters
 int dayCount = 0;       // counts how many grid cells is white
@@ -116,117 +118,118 @@ void InitializeGrid() {
 }
 
 void UpdateCircles() {
+    // only update the circles if the game has started
+    if(!gameStarted) {
+        return;
+    }
+
     // THIS IS FOR THE DAY HALF (WHITE CIRCLE)
-    if(dayRunning) {
-        if(dayAngleChanged) {
-            float speed = sqrt(dayCircleVelX * dayCircleVelX + dayCircleVelY * dayCircleVelY);
-            dayCircleVelX = cos(dayCircleAngle) * speed;
-            dayCircleVelY = sin(dayCircleAngle) * speed;
-            dayAngleChanged = false;
-        }
-        dayCircleStartX += dayCircleVelX;
-        dayCircleStartY += dayCircleVelY;
-        
-        // handles the wall bounces
-        if (dayCircleStartX <= CIRCLE_BOUND || dayCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) {
-            dayCircleVelX = -dayCircleVelX;
+    if(dayAngleChanged) {
+        float speed = sqrt(dayCircleVelX * dayCircleVelX + dayCircleVelY * dayCircleVelY);
+        dayCircleVelX = cos(dayCircleAngle) * speed;
+        dayCircleVelY = sin(dayCircleAngle) * speed;
+        dayAngleChanged = false;
+    }
+    dayCircleStartX += dayCircleVelX;
+    dayCircleStartY += dayCircleVelY;
+    
+    // handles the wall bounces
+    if (dayCircleStartX <= CIRCLE_BOUND || dayCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) {
+        dayCircleVelX = -dayCircleVelX;
 
-            // this stuff makes sure the balls stay in bounds
-            if (dayCircleStartX <= CIRCLE_BOUND) dayCircleStartX = CIRCLE_BOUND;
-            if (dayCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) dayCircleStartX = GRID_SIZE_X - CIRCLE_BOUND;
-            
-            // everytime the balls bounce it changes the angle a bit
-            // bcs otherwise the balls would draw an identical path
+        // this stuff makes sure the balls stay in bounds
+        if (dayCircleStartX <= CIRCLE_BOUND) dayCircleStartX = CIRCLE_BOUND;
+        if (dayCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) dayCircleStartX = GRID_SIZE_X - CIRCLE_BOUND;
+        
+        // everytime the balls bounce it changes the angle a bit
+        // bcs otherwise the balls would draw an identical path
+        float speed = sqrt(dayCircleVelX * dayCircleVelX + dayCircleVelY * dayCircleVelY);
+        float angle = atan2(dayCircleVelY, dayCircleVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
+        dayCircleVelX = cos(angle) * speed;
+        dayCircleVelY = sin(angle) * speed;
+    }
+    if (dayCircleStartY <= CIRCLE_BOUND || dayCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) {
+        dayCircleVelY = -dayCircleVelY;
+
+        if (dayCircleStartY <= CIRCLE_BOUND) dayCircleStartY = CIRCLE_BOUND;
+        if (dayCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) dayCircleStartY = GRID_SIZE_Y - CIRCLE_BOUND;
+        
+        float speed = sqrt(dayCircleVelX * dayCircleVelX + dayCircleVelY * dayCircleVelY);
+        float angle = atan2(dayCircleVelY, dayCircleVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
+        dayCircleVelX = cos(angle) * speed;
+        dayCircleVelY = sin(angle) * speed;
+    }
+    
+    // checks collision with grid cells
+    int gridX = (int)round(dayCircleStartX);
+    int gridY = (int)round(dayCircleStartY);
+    if (gridX >= 0 && gridX < GRID_SIZE_X && gridY >= 0 && gridY < GRID_SIZE_Y) {
+        if (grid[gridY][gridX] == 1) { // if a black cell is hit...
+            grid[gridY][gridX] = 0; // turn it white
+            tone(BUZZER_PIN, BUZZER_DAY);
+            delay(10);
+            tone(BUZZER_PIN, 0);
+
+            // same angle change code
             float speed = sqrt(dayCircleVelX * dayCircleVelX + dayCircleVelY * dayCircleVelY);
-            float angle = atan2(dayCircleVelY, dayCircleVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
+            float angle = atan2(-dayCircleVelY, -dayCircleVelX) + (RandomFloat() - 0.5f) * COLLISION_RAND;
             dayCircleVelX = cos(angle) * speed;
             dayCircleVelY = sin(angle) * speed;
         }
-        if (dayCircleStartY <= CIRCLE_BOUND || dayCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) {
-            dayCircleVelY = -dayCircleVelY;
-
-            if (dayCircleStartY <= CIRCLE_BOUND) dayCircleStartY = CIRCLE_BOUND;
-            if (dayCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) dayCircleStartY = GRID_SIZE_Y - CIRCLE_BOUND;
-            
-            float speed = sqrt(dayCircleVelX * dayCircleVelX + dayCircleVelY * dayCircleVelY);
-            float angle = atan2(dayCircleVelY, dayCircleVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
-            dayCircleVelX = cos(angle) * speed;
-            dayCircleVelY = sin(angle) * speed;
-        }
-        
-        // checks collision with grid cells
-        int gridX = (int)round(dayCircleStartX);
-        int gridY = (int)round(dayCircleStartY);
-        if (gridX >= 0 && gridX < GRID_SIZE_X && gridY >= 0 && gridY < GRID_SIZE_Y) {
-            if (grid[gridY][gridX] == 1) { // if a black cell is hit...
-                grid[gridY][gridX] = 0; // turn it white
-                tone(BUZZER_PIN, BUZZER_DAY);
-                delay(10);
-                tone(BUZZER_PIN, 0);
-
-                // same angle change code
-                float speed = sqrt(dayCircleVelX * dayCircleVelX + dayCircleVelY * dayCircleVelY);
-                float angle = atan2(-dayCircleVelY, -dayCircleVelX) + (RandomFloat() - 0.5f) * COLLISION_RAND;
-                dayCircleVelX = cos(angle) * speed;
-                dayCircleVelY = sin(angle) * speed;
-            }
-        }
-    }    
+    }
     // END DAY HALF
     
     // THIS IS FOR THE NIGHT HALF (BLACK CIRCLE)
-    if(nightRunning) {
-        if(nightAngleChanged) {
-            float speed = sqrt(nightCircleVelX * nightCircleVelX + nightCircleVelY * nightCircleVelY);
-            nightCircleVelX = cos(nightCircleAngle) * speed;
-            nightCircleVelY = sin(nightCircleAngle) * speed;
-            nightAngleChanged = false;
-        }
-        nightCircleStartX += nightCircleVelX;
-        nightCircleStartY += nightCircleVelY;
+    if(nightAngleChanged) {
+        float speed = sqrt(nightCircleVelX * nightCircleVelX + nightCircleVelY * nightCircleVelY);
+        nightCircleVelX = cos(nightCircleAngle) * speed;
+        nightCircleVelY = sin(nightCircleAngle) * speed;
+        nightAngleChanged = false;
+    }
+    nightCircleStartX += nightCircleVelX;
+    nightCircleStartY += nightCircleVelY;
+    
+    // handles the wall bounces
+    if (nightCircleStartX <= CIRCLE_BOUND || nightCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) {
+        nightCircleVelX = -nightCircleVelX;
+        // this stuff makes sure the balls stay in bounds
+        if (nightCircleStartX <= CIRCLE_BOUND) nightCircleStartX = CIRCLE_BOUND;
+        if (nightCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) nightCircleStartX = GRID_SIZE_X - CIRCLE_BOUND;
         
-        // handles the wall bounces
-        if (nightCircleStartX <= CIRCLE_BOUND || nightCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) {
-            nightCircleVelX = -nightCircleVelX;
-            // this stuff makes sure the balls stay in bounds
-            if (nightCircleStartX <= CIRCLE_BOUND) nightCircleStartX = CIRCLE_BOUND;
-            if (nightCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) nightCircleStartX = GRID_SIZE_X - CIRCLE_BOUND;
+        // everytime the balls bounce it changes the angle a bit
+        // bcs otherwise the balls would draw an identical path
+        float speed = sqrt(nightCircleVelX * nightCircleVelX + nightCircleVelY * nightCircleVelY);
+        float angle = atan2(nightCircleVelY, nightCircleVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
+        nightCircleVelX = cos(angle) * speed;
+        nightCircleVelY = sin(angle) * speed;
+    }
+    if (nightCircleStartY <= CIRCLE_BOUND || nightCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) {
+        nightCircleVelY = -nightCircleVelY;
+    
+        if (nightCircleStartY <= CIRCLE_BOUND) nightCircleStartY = CIRCLE_BOUND;
+        if (nightCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) nightCircleStartY = GRID_SIZE_Y - CIRCLE_BOUND;
+        
+        float speed = sqrt(nightCircleVelX * nightCircleVelX + nightCircleVelY * nightCircleVelY);
+        float angle = atan2(nightCircleVelY, nightCircleVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
+        nightCircleVelX = cos(angle) * speed;
+        nightCircleVelY = sin(angle) * speed;
+    }
+    
+    // checks collision with grid cells
+    gridX = (int)round(nightCircleStartX);  
+    gridY = (int)round(nightCircleStartY);
+    if (gridX >= 0 && gridX < GRID_SIZE_X && gridY >= 0 && gridY < GRID_SIZE_Y) {
+        if (grid[gridY][gridX] == 0) { // if a white cell is hit...
+            grid[gridY][gridX] = 1; // turn it black
+            tone(BUZZER_PIN, BUZZER_NIGHT);
+            delay(10);
+            tone(BUZZER_PIN, 0);
             
-            // everytime the balls bounce it changes the angle a bit
-            // bcs otherwise the balls would draw an identical path
+            // same angle change code
             float speed = sqrt(nightCircleVelX * nightCircleVelX + nightCircleVelY * nightCircleVelY);
-            float angle = atan2(nightCircleVelY, nightCircleVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
+            float angle = atan2(-nightCircleVelY, -nightCircleVelX) + (RandomFloat() - 0.5f) * COLLISION_RAND;
             nightCircleVelX = cos(angle) * speed;
             nightCircleVelY = sin(angle) * speed;
-        }
-        if (nightCircleStartY <= CIRCLE_BOUND || nightCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) {
-            nightCircleVelY = -nightCircleVelY;
-        
-            if (nightCircleStartY <= CIRCLE_BOUND) nightCircleStartY = CIRCLE_BOUND;
-            if (nightCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) nightCircleStartY = GRID_SIZE_Y - CIRCLE_BOUND;
-            
-            float speed = sqrt(nightCircleVelX * nightCircleVelX + nightCircleVelY * nightCircleVelY);
-            float angle = atan2(nightCircleVelY, nightCircleVelX) + (RandomFloat() - 0.5f) * ANGLE_RAND;
-            nightCircleVelX = cos(angle) * speed;
-            nightCircleVelY = sin(angle) * speed;
-        }
-        
-        // checks collision with grid cells
-        int gridX = (int)round(nightCircleStartX);  
-        int gridY = (int)round(nightCircleStartY);
-        if (gridX >= 0 && gridX < GRID_SIZE_X && gridY >= 0 && gridY < GRID_SIZE_Y) {
-            if (grid[gridY][gridX] == 0) { // if a white cell is hit...
-                grid[gridY][gridX] = 1; // turn it black
-                tone(BUZZER_PIN, BUZZER_NIGHT);
-                delay(10);
-                tone(BUZZER_PIN, 0);
-                
-                // same angle change code
-                float speed = sqrt(nightCircleVelX * nightCircleVelX + nightCircleVelY * nightCircleVelY);
-                float angle = atan2(-nightCircleVelY, -nightCircleVelX) + (RandomFloat() - 0.5f) * COLLISION_RAND;
-                nightCircleVelX = cos(angle) * speed;
-                nightCircleVelY = sin(angle) * speed;
-            }
         }
     }
     // END NIGHT HALF
@@ -266,6 +269,17 @@ void DrawGame() {
             }
         }
     }
+
+    if(gameStarted) {
+        // DAY PADDLE
+        int dayPaddleX = PADDLE_OFFSET * CELL_SIZE;
+        int dayPaddleYPixel = (int)(dayPaddleY * CELL_SIZE);
+        display.fillRect(dayPaddleX, dayPaddleYPixel, PADDLE_WIDTH * CELL_SIZE, PADDLE_HEIGHT * CELL_SIZE, COLOR_BLACK);
+        // NIGHT PADDLE
+        int nightPaddleX = (GRID_SIZE_X - PADDLE_OFFSET - PADDLE_WIDTH) * CELL_SIZE;
+        int nightPaddleYPixel = (int)(nightPaddleY * CELL_SIZE);
+        display.fillRect(nightPaddleX, nightPaddleYPixel, PADDLE_WIDTH * CELL_SIZE, PADDLE_HEIGHT * CELL_SIZE, COLOR_WHITE);
+    }
     
     // draw circles
     int leftX = (int)(dayCircleStartX * CELL_SIZE);
@@ -279,27 +293,25 @@ void DrawGame() {
     // right circle (white on black background)
     display.fillCircle(rightX, rightY, CIRCLE_RADIUS, COLOR_WHITE);
 
-    // draw angle lines
-    // DAY
-    if(!dayRunning) {
+    // draw angle lines or paddles
+    if(!gameStarted) {
+        // DAY ANGLE LINE
         int dayEndX = leftX + (int)(cos(dayCircleAngle) * AIM_LINE_LENGTH);
         int dayEndY = leftY + (int)(sin(dayCircleAngle) * AIM_LINE_LENGTH);
         display.drawLine(leftX, leftY, dayEndX, dayEndY, COLOR_BLACK);
-    }
-    // NIGHT
-    if(!nightRunning) {
+        // NIGHT ANGLE LINE
         int nightEndX = rightX + (int)(cos(nightCircleAngle) * AIM_LINE_LENGTH);
         int nightEndY = rightY + (int)(sin(nightCircleAngle) * AIM_LINE_LENGTH);
         display.drawLine(rightX, rightY, nightEndX, nightEndY, COLOR_WHITE);
-    }
+    } 
 }
 
 void DrawNames() {
   // tweaks the position of the names
   int dayPosX = 12;
-  int dayPosY = 117;
+  int dayPosY = 119;
   int nightPosX = 5;
-  int nightPosY = 120;
+  int nightPosY = 119;
 
   display.setTextSize(1);
 
@@ -318,10 +330,11 @@ void DrawNames() {
   display.setRotation(0); // reset
 }
 
-// use potentiometer to change angle of circles
+// potentiometer control (angle & paddle)
 void ReadPotentiometer() {
-    // DAY
-    if(!dayRunning) {
+    if(!gameStarted) {
+        // use potentiometer to change angle of circles at the beginning of the game
+        // DAY ANGLE LINE
         int dayPotValue = analogRead(POT_DAY_PIN);
         // only update if there's a significant change
         if(abs(dayPotValue - lastDayPotValue) > POT_THRESHOLD) {
@@ -330,9 +343,7 @@ void ReadPotentiometer() {
             dayCircleAngle = PI - unmappedDayCircleAngle;   // so the aim is flipped horizontally
             lastDayPotValue = dayPotValue;
         }
-    }  
-    // NIGHT
-    if(!nightRunning) {
+        // NIGHT ANGLE LINE
         int nightPotValue = analogRead(POT_NIGHT_PIN);
         // only update if there's a significant change
         if(abs(nightPotValue - lastNightPotValue) > POT_THRESHOLD) {
@@ -340,13 +351,33 @@ void ReadPotentiometer() {
             nightCircleAngle = map(nightPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
             lastNightPotValue = nightPotValue;
         }
+    } else {
+        // use potentiometer to move the paddles when the game starts
+        // DAY PADDLE
+        int dayPotValue = analogRead(POT_DAY_PIN);
+        // only update if there's a significant change
+        if(abs(dayPotValue - lastDayPotValue) > POT_THRESHOLD) {
+            // map potentiometer value (0-1023) to Y pos
+            float mappedValue = map(dayPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
+            dayPaddleY = mappedValue / PADDLE_SENS;
+            dayPaddleY = constrain(dayPaddleY, 1.0f, GRID_SIZE_Y - PADDLE_HEIGHT - 1.0f);
+            lastDayPotValue = dayPotValue;
+        }
+        // NIGHT PADDLE
+        int nightPotValue = analogRead(POT_NIGHT_PIN);
+        if(abs(nightPotValue - lastNightPotValue) > POT_THRESHOLD) {
+            // map potentiometer to paddle Y position (0 to GRID_SIZE_Y - PADDLE_HEIGHT)
+            float mappedValue = map(nightPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
+            nightPaddleY = mappedValue / PADDLE_SENS;
+            nightPaddleY = constrain(nightPaddleY, 1.0f, GRID_SIZE_Y - PADDLE_HEIGHT - 1.0f);
+            lastNightPotValue = nightPotValue;
+        }
     }
 }
 
 void setup() {
     Serial.begin(115200);
-    pinMode(BTN_DAY_PIN, INPUT_PULLUP);
-    pinMode(BTN_NIGHT_PIN, INPUT_PULLUP);
+    pinMode(BTN_RESET_PIN, INPUT_PULLUP);
     pinMode(BUZZER_PIN, OUTPUT);
     
     // init random seed
@@ -384,51 +415,38 @@ void setup() {
 void loop() {
     ReadPotentiometer();
 
-    // sync start at the beginning of the game
-    // either button will unpause both circles for a fair start
-    if(!gameStarted) {
-        bool currentDayButtonState = digitalRead(BTN_DAY_PIN) == LOW;
-        bool currentNightButtonState = digitalRead(BTN_NIGHT_PIN) == LOW;
-
-        // check either button press to start both circles
-        if((currentDayButtonState && !lastDayButtonState && millis() - lastDayButtonState > buttonDebounceDelay) ||
-           (currentNightButtonState && !lastNightButtonState && millis() - lastNightButtonState > buttonDebounceDelay)) {
-            dayRunning = true;
-            nightRunning = true;
+    // handle single button for start/reset
+    bool currentButtonState = digitalRead(BTN_RESET_PIN) == LOW;
+    if(currentButtonState && !lastButtonState && millis() - lastButtonPressTime > buttonDebounceDelay) {
+        lastButtonPressTime = millis();
+        
+        if(!gameStarted) {
+            // start the game
+            gameStarted = true;
             dayAngleChanged = true;
             nightAngleChanged = true;
-            gameStarted = true;
+        } else {
+            // reset the game
+            gameStarted = false;
+            InitializeGrid();
+            dayCircleStartX = 8.0f;
+            dayCircleStartY = 8.0f;
+            nightCircleStartX = 24.0f;
+            nightCircleStartY = 8.0f;
+            
+            // re-init velocities with current potentiometer angles
+            float speed = CIRCLE_SPEED;
+            dayCircleVelX = cos(dayCircleAngle) * speed;
+            dayCircleVelY = sin(dayCircleAngle) * speed;
+            nightCircleVelX = cos(nightCircleAngle) * speed;
+            nightCircleVelY = sin(nightCircleAngle) * speed;
 
-            lastDayPressTime = millis();
-            lastNightPressTime = millis();
+            // reset paddles
+            dayPaddleY = 6.0f;
+            nightPaddleY = 6.0f;
         }
-        lastDayButtonState = currentDayButtonState;
-        lastNightButtonState = currentNightButtonState;
-    } else {
-        // handle DAY button
-        bool currentDayButtonState = digitalRead(BTN_DAY_PIN) == LOW;
-        if(currentDayButtonState && !lastDayButtonState && millis() - lastDayPressTime > buttonDebounceDelay) {
-            lastDayPressTime = millis();
-            dayRunning = !dayRunning;
-
-            if(dayRunning) {
-                dayAngleChanged = true;
-            }
-        }
-        lastDayButtonState = currentDayButtonState;
-
-        // handle NIGHT button
-        bool currentNightButtonState = digitalRead(BTN_NIGHT_PIN) == LOW;
-        if(currentNightButtonState && !lastNightButtonState && millis() - lastNightPressTime > buttonDebounceDelay) {
-            lastNightPressTime = millis();
-            nightRunning = !nightRunning;
-
-            if(nightRunning) {
-                nightAngleChanged = true;
-            }
-        }
-        lastNightButtonState = currentNightButtonState;
     }
+    lastButtonState = currentButtonState;
 
     // update display
     unsigned long currentTime = millis();

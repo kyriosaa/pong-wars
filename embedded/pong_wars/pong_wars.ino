@@ -7,9 +7,8 @@
 // component defines
 #define BTN_DAY_PIN     5       // D5
 #define BTN_NIGHT_PIN   18      // D18
+#define BTN_DEBOUNCE    200     // (both) button debounce delay
 #define BUZZER_PIN      2       // D2 - PWM
-#define BUZZER_DAY      1250    // Hz noise of day circle when it hits a cell
-#define BUZZER_NIGHT    750     // Hz noise of night circle when it hits a cell
 #define POT_DAY_PIN     32      // ADC1_CH5
 #define POT_NIGHT_PIN   33      // ADC1_CH4
 #define POT_THRESHOLD   2       // min change to update circle angle
@@ -20,29 +19,30 @@
 #define ADC_MAX         1023    // Analog2Digital Converter max reading
 
 // screen defines
+#define UPDATE_INTERVAL 16      // framerate basically (lower num = higher framerate) (its currently ~60FPS)
 #define SCREEN_WIDTH    128     // OLED screen length
 #define SCREEN_HEIGHT   64      // OLED screen height
 #define SCREEN_ADDRESS  0x3C    // A4->DATA | A5->CLOCK
+#define GRID_SIZE_X     32      // overall length of grid (128x64 OLED -> 32x16 grid)
+#define GRID_SIZE_Y     16      // overall height of grid (128x64 OLED -> 32x16 grid)
+#define CELL_SIZE       4       // size of grid cells
+#define HUD_POS_X       5       // x-axis position for hud
+#define HUD_POS_Y       119     // y-axis position for hud
+#define HEART_OFFSET    30      // how far away from edges are the hearts
+#define HEART_SPACING   8       // spacing for the heart icons
 #define OLED_RESET      -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // game defines
+#define BOOT_DELAY      2000    // delay for boot screen
+#define STARTING_LIVES  3       // starting lives
+#define RESPAWN_CD      3000    // cooldown for respawn
 #define PI              3.1415f // π π π pi π π π
-#define GRID_SIZE_X     32      // overall length of grid (128x64 OLED -> 32x16 grid)
-#define GRID_SIZE_Y     16      // overall height of grid (128x64 OLED -> 32x16 grid)
-#define CELL_SIZE       4       // size of grid cells
-#define CIRCLE_RADIUS   2       // radius of circle
-#define CIRCLE_SPEED    0.5f    // speed of circle
-#define CIRCLE_BOUND    0       // distance from walls
 #define ANGLE_RAND      0.0f    // rand for wall bounces
+#define ANGLE_VAR_STR   0.5f    // angle variation strength for paddle bounces
 #define COLLISION_RAND  0.3f    // rand for cell collisions
 #define COLLISION_CD    100     // circle collision cooldown
 #define AIM_LINE_LENGTH 15      // length of the aim line
-#define PADDLE_WIDTH    1       // width of paddle
-#define PADDLE_HEIGHT   4       // height of paddle
-#define PADDLE_OFFSET   3       // distance from left/right edge (depends on side)
-#define PADDLE_SENS     350.0f  // keeps the paddle from going off screen by slowing it down (idk if this changes depending on the screen size)
-#define PADDLE_MIN_BND  0.0f    // min bound for paddle (edges of screen)
 #define COLOR_WHITE     SSD1306_WHITE
 #define COLOR_BLACK     SSD1306_BLACK
 
@@ -50,15 +50,40 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define RAND_MULTIPLIER 1000    // for the RandomFloat() func
 #define RAND_DIVISOR    1000.0f
 
+// sound defines
+#define DAY_FREQ        1250    // Hz noise of day circle when it hits a cell
+#define NIGHT_FREQ      750     // Hz noise of night circle when it hits a cell
+#define DEATH_FREQ      300     // frequency of death sound
+#define HIT_DURATION    10      // duration of hit sound
+#define DEATH_DURATION  200     // duration of death sound
+
+// circle defines
+#define DAY_START_X     8.0f    // start pos
+#define DAY_START_Y     8.0f
+#define NIGHT_START_X   24.0f
+#define NIGHT_START_Y   8.0f
+#define CIRCLE_RADIUS   2       // radius of circle
+#define CIRCLE_COL_RAD  0.5f    // radius of circle collision detection
+#define CIRCLE_SPEED    0.5f    // speed of circle
+#define CIRCLE_BOUND    0       // distance from walls
+
+// paddle defines
+#define PADDLE_WIDTH    1       // width of paddle
+#define PADDLE_HEIGHT   4       // height of paddle
+#define PADDLE_OFFSET   3       // distance from left/right edge (depends on side)
+#define PADDLE_SENS     350.0f  // keeps the paddle from going off screen by slowing it down (idk if this changes depending on the screen size)
+#define PADDLE_MIN_BND  0.0f    // min bound for paddle (edges of screen)
+#define PADDLE_MAP_MIN  100     // min mapping constant for paddle
+#define PADDLE_MAP_OFST 1       // offset for paddles
 
 // white = 0
 // black = 1
 int grid[GRID_SIZE_Y][GRID_SIZE_X];
 
 // circle positions & velocities
-float dayCircleStartX = 8.0f, dayCircleStartY = 8.0f;       // starting location for day circle
-float dayCircleVelX = 0.8f, dayCircleVelY = -0.8f;
-float nightCircleStartX = 24.0f, nightCircleStartY = 8.0f;  // starting location for night circle
+float dayCircleStartX = DAY_START_X, dayCircleStartY = DAY_START_Y;             // starting locations
+float nightCircleStartX = NIGHT_START_X, nightCircleStartY = NIGHT_START_Y;  
+float dayCircleVelX = 0.8f, dayCircleVelY = -0.8f;                              // starting velocities
 float nightCircleVelX = -0.8f, nightCircleVelY = 0.8f;
 float dayCircleAngle = 0.0f;
 float nightCircleAngle = 0.0f;
@@ -75,22 +100,24 @@ bool lastDayButtonState = false;            // tracks button input management
 bool lastNightButtonState = false;  
 bool dayCircleActive = false;               // circle states
 bool nightCircleActive = false;
-const int buttonDebounceDelay = 200;        // debounce delay
 unsigned long lastDayButtonPressTime = 0;   // button debounce timing
 unsigned long lastNightButtonPressTime = 0;
 unsigned long dayCircleCooldownEnd = 0;     // cooldown timer for grid cell changes
 unsigned long nightCircleCooldownEnd = 0;  
+unsigned long dayRespawnEnd = 0;
+unsigned long nightRespawnEnd = 0;
 
 // counters
 int dayCount = 0;       // counts how many grid cells is white
 int nightCount = 0;     // counts how many grid cells is black
+int dayLives = 3;       // day player lives
+int nightLives = 3;     // night player lives
 
 // potentiometer
 int lastDayPotValue = 0;
 int lastNightPotValue = 0;
 
 unsigned long lastUpdate = 0;
-const int UPDATE_INTERVAL = 16; // framerate basically (lower num = higher framerate) (its currently ~60FPS)
 
 float RandomFloat() {
     return (float)random(0, RAND_MULTIPLIER) / RAND_DIVISOR;
@@ -126,6 +153,73 @@ void InitializeGrid() {
   }
 }
 
+void GameOver() {
+    display.clearDisplay();
+    display.fillScreen(COLOR_BLACK); 
+    
+    // GAME OVER
+    display.setTextSize(2);
+    display.setTextColor(COLOR_WHITE);
+    display.setCursor(12, 5);
+    display.println(F("GAME OVER"));
+    
+    // find winner
+    display.setTextSize(1);
+    display.setCursor(32, 30);
+    if(dayCount > nightCount) {
+        display.setTextColor(COLOR_WHITE);
+        display.println(F("DAY WINS!"));
+    } else if(nightCount > dayCount) {
+        display.setTextColor(COLOR_WHITE);
+        display.println(F("NIGHT WINS!"));
+    } else {
+        display.setTextColor(COLOR_WHITE);
+        display.println(F("TIE GAME!"));
+    }
+    
+    // score side-by-side
+    display.setTextSize(1);
+    display.setTextColor(COLOR_WHITE);
+
+    display.setCursor(17, 45);
+    display.print(F("DAY"));
+    display.setCursor(82, 45);
+    display.print(F("NIGHT"));
+
+    display.setTextSize(1);
+    display.setCursor(17, 53);
+    display.print(dayCount);
+    display.setCursor(82, 53);
+    display.print(nightCount);
+    
+    display.display();
+    
+    // wait for any button press to restart
+    while(true) {
+        bool dayButton = digitalRead(BTN_DAY_PIN) == LOW;
+        bool nightButton = digitalRead(BTN_NIGHT_PIN) == LOW;
+        
+        if(dayButton || nightButton) {
+            delay(500);
+            break;
+        }
+        delay(50);
+    }
+    
+    // reset game
+    gameRunning = false;
+    dayCircleActive = false;
+    nightCircleActive = false;
+    dayRespawnEnd = 0;
+    nightRespawnEnd = 0;
+    InitializeGrid();
+    InitLives();
+    dayCircleStartX = DAY_START_X;
+    dayCircleStartY = DAY_START_Y;
+    nightCircleStartX = NIGHT_START_X;
+    nightCircleStartY = NIGHT_START_Y;
+}
+
 void UpdateCircles() {
     // only update the circles if the game has started
     if(!gameRunning) {
@@ -145,7 +239,7 @@ void UpdateCircles() {
         dayCircleStartY += dayCircleVelY;
 
         bool shouldDayBounce = false;
-        float dayCircleRadius = 0.5f;
+        float dayCircleRadius = CIRCLE_COL_RAD;
 
         // check the cells that the circle might be touching
         int dayMinX = (int)floor(dayCircleStartX - dayCircleRadius);
@@ -169,8 +263,8 @@ void UpdateCircles() {
                             
                             if(millis() > dayCircleCooldownEnd) {
                                 grid[checkY][checkX] = 0; // ...turn it white
-                                tone(BUZZER_PIN, BUZZER_DAY);
-                                delay(10);
+                                tone(BUZZER_PIN, DAY_FREQ);
+                                delay(HIT_DURATION);
                                 tone(BUZZER_PIN, 0);
                                 dayCircleCooldownEnd = millis() + COLLISION_CD;
                             }
@@ -207,7 +301,7 @@ void UpdateCircles() {
                 dayCircleVelX = abs(dayCircleVelX);
                 // angle variation for chaos otherwise its gonna be boring
                 float hitPosition = (dayCircleStartY - dayPaddleY) / PADDLE_HEIGHT;
-                float angleVariation = (hitPosition - 0.5f) * 0.5f;
+                float angleVariation = (hitPosition - 0.5f) * ANGLE_VAR_STR;
 
                 float speed = sqrt(dayCircleVelX * dayCircleVelX + dayCircleVelY * dayCircleVelY);
                 float currentAngle = atan2(dayCircleVelY, dayCircleVelX);
@@ -223,16 +317,26 @@ void UpdateCircles() {
         // handles the wall bounces
         bool dayBounced = false;
         if(dayCircleStartX <= CIRCLE_BOUND || dayCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) {
-            // vertical wall collision
-            dayCircleVelX = -dayCircleVelX;
-            dayBounced = true;
-
-            // this stuff makes sure the balls stay in bounds
-            if(dayCircleStartX <= CIRCLE_BOUND) dayCircleStartX = CIRCLE_BOUND;
-            if(dayCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) dayCircleStartX = GRID_SIZE_X - CIRCLE_BOUND;
+            // check if day circle hit left edge
+            if(dayCircleStartX <= CIRCLE_BOUND) {
+                // if skill issue, lose a life and reset circle
+                dayLives--;
+                ResetCircle(true);
+                
+                // game over check
+                if(dayLives <= 0) {
+                    GameOver();
+                    return;
+                }
+            } else {
+                // right wall - normal bounce
+                dayCircleVelX = -dayCircleVelX;
+                dayBounced = true;
+                dayCircleStartX = GRID_SIZE_X - CIRCLE_BOUND;
+            }
         }
         if(dayCircleStartY <= CIRCLE_BOUND || dayCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) {
-            // horizontal wall collision
+            // horizontal wall - normal bounce
             dayCircleVelY = -dayCircleVelY;
             dayBounced = true;
 
@@ -265,7 +369,7 @@ void UpdateCircles() {
         nightCircleStartY += nightCircleVelY;
 
         bool shouldNightBounce = false;
-        float nightCircleRadius = 0.5f;
+        float nightCircleRadius = CIRCLE_COL_RAD;
 
         // check the cells that the circle might be touching
         int nightMinX = (int)floor(nightCircleStartX - nightCircleRadius);
@@ -290,8 +394,8 @@ void UpdateCircles() {
                             
                             if(millis() > nightCircleCooldownEnd) {
                                 grid[checkY][checkX] = 1; // ...turn it black
-                                tone(BUZZER_PIN, BUZZER_NIGHT);
-                                delay(10);
+                                tone(BUZZER_PIN, NIGHT_FREQ);
+                                delay(HIT_DURATION);
                                 tone(BUZZER_PIN, 0);
                                 nightCircleCooldownEnd = millis() + COLLISION_CD;
                             }
@@ -329,7 +433,7 @@ void UpdateCircles() {
                 
                 // angle variation for chaos or else its boring
                 float hitPosition = (nightCircleStartY - nightPaddleY) / PADDLE_HEIGHT;
-                float angleVariation = (hitPosition - 0.5f) * 0.5f; 
+                float angleVariation = (hitPosition - 0.5f) * ANGLE_VAR_STR; 
                 
                 float speed = sqrt(nightCircleVelX * nightCircleVelX + nightCircleVelY * nightCircleVelY);
                 float currentAngle = atan2(nightCircleVelY, nightCircleVelX);
@@ -345,16 +449,26 @@ void UpdateCircles() {
         // handles the wall bounces
         bool nightBounced = false;
         if(nightCircleStartX <= CIRCLE_BOUND || nightCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) {
-            // vertical wall collision
-            nightCircleVelX = -nightCircleVelX;
-            nightBounced = true;
-            
-            // this stuff makes sure the balls stay in bounds
-            if(nightCircleStartX <= CIRCLE_BOUND) nightCircleStartX = CIRCLE_BOUND;
-            if(nightCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) nightCircleStartX = GRID_SIZE_X - CIRCLE_BOUND;
+            // check if night circle hit right edge
+            if(nightCircleStartX >= GRID_SIZE_X - CIRCLE_BOUND) {
+                // if skill issue, lose a life and reset circle
+                nightLives--;
+                ResetCircle(false);
+                
+                // Check for game over
+                if(nightLives <= 0) {
+                    GameOver();
+                    return;
+                }
+            } else {
+                // left wall - normal bounce
+                nightCircleVelX = -nightCircleVelX;
+                nightBounced = true;
+                nightCircleStartX = CIRCLE_BOUND;
+            }
         }
         if(nightCircleStartY <= CIRCLE_BOUND || nightCircleStartY >= GRID_SIZE_Y - CIRCLE_BOUND) {
-            // horizontal wall collision
+            // horizontal wall - normal bounce
             nightCircleVelY = -nightCircleVelY;
             nightBounced = true;
         
@@ -373,6 +487,25 @@ void UpdateCircles() {
         }
     }
     // END NIGHT HALF
+}
+
+void ResetCircle(bool isDay) {
+    if(isDay) {
+        dayCircleActive = false;
+        dayCircleStartX = DAY_START_X;
+        dayCircleStartY = DAY_START_Y;
+        dayRespawnEnd = millis() + RESPAWN_CD;
+    } else {
+        nightCircleActive = false;
+        nightCircleStartX = NIGHT_START_X;
+        nightCircleStartY = NIGHT_START_Y;
+        nightRespawnEnd = millis() + RESPAWN_CD;
+    }
+    
+    // Death sound
+    tone(BUZZER_PIN, DEATH_FREQ);
+    delay(DEATH_DURATION);
+    tone(BUZZER_PIN, 0);
 }
 
 // counts the squares for the counters
@@ -447,28 +580,79 @@ void DrawGame() {
         int nightEndY = rightY + (int)(sin(nightCircleAngle) * AIM_LINE_LENGTH);
         display.drawLine(rightX, rightY, nightEndX, nightEndY, COLOR_WHITE);
     }
+
+    // cooldown timers
+    // DAY RESPAWN CD
+    if(!dayCircleActive && dayRespawnEnd > millis()) {
+        unsigned long timeLeft = (dayRespawnEnd - millis() + 999) / 1000;
+        display.setTextSize(1);
+        display.setTextColor(COLOR_BLACK);
+        display.setCursor(leftX - 3, leftY - 15);
+        display.print(timeLeft);
+    }
+    // NIGHT RESPAWN CD
+    if(!nightCircleActive && nightRespawnEnd > millis()) {
+        unsigned long timeLeft = (nightRespawnEnd - millis() + 999) / 1000;
+        display.setTextSize(1);
+        display.setTextColor(COLOR_WHITE);
+        display.setCursor(rightX - 3, rightY - 15);
+        display.print(timeLeft);
+    }
 }
 
-void DrawNames() {
-  // tweaks the position of the names
-  int dayPosX = 12;
-  int dayPosY = 119;
-  int nightPosX = 5;
-  int nightPosY = 119;
+void DrawHeart(int x, int y, int color) {
+    // Row 0: .##.##.
+    // Row 1: #######
+    // Row 2: #######
+    // Row 3: .#####.
+    // Row 4: ..###..
+    // Row 5: ...#...
+    
+    display.drawPixel(x+1, y, color);
+    display.drawPixel(x+2, y, color);
+    display.drawPixel(x+4, y, color);
+    display.drawPixel(x+5, y, color);
+    
+    for(int i = 0; i < 7; i++) {
+        display.drawPixel(x+i, y+1, color);
+        display.drawPixel(x+i, y+2, color);
+    }
+    
+    for(int i = 1; i < 6; i++) {
+        display.drawPixel(x+i, y+3, color);
+    }
+    for(int i = 2; i < 5; i++) {
+        display.drawPixel(x+i, y+4, color);
+    }
+    display.drawPixel(x+3, y+5, color);
+}
 
+void DrawHud() {
   display.setTextSize(1);
 
+  // DAY
   display.setRotation(1); // 90 deg
-  display.setCursor(dayPosX, dayPosY);
+  display.setCursor(HUD_POS_X, HUD_POS_Y);
   display.setTextColor(COLOR_BLACK);
-  display.print(F("Day:"));
-  display.println(dayCount);
+  display.print(dayCount);
+  display.println(" ");
 
+  int heartX = HUD_POS_X + HEART_OFFSET;
+  for(int i = 0; i < dayLives; i++) {
+    DrawHeart(heartX + (i * HEART_SPACING), HUD_POS_Y, COLOR_BLACK);
+  }
+
+  // NIGHT
   display.setRotation(3); // 270 deg
-  display.setCursor(nightPosX, nightPosY);
+  display.setCursor(HUD_POS_X, HUD_POS_Y);
   display.setTextColor(COLOR_WHITE);
-  display.print(F("Night:"));
-  display.println(nightCount);
+  display.print(nightCount);
+  display.println(" ");
+
+  heartX = HUD_POS_X + HEART_OFFSET;
+  for(int i = 0; i < nightLives; i++) {
+    DrawHeart(heartX + (i * HEART_SPACING), HUD_POS_Y, COLOR_WHITE);
+  }
 
   display.setRotation(0); // reset
 }
@@ -537,6 +721,23 @@ void ReadPotentiometer() {
     }
 }
 
+void InitLives() {
+    dayLives = STARTING_LIVES;
+    nightLives = STARTING_LIVES;
+}
+
+void InitPaddles() {
+    int dayPotValue = analogRead(POT_DAY_PIN);
+    float dayMappedValue = map(dayPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
+    dayPaddleY = dayMappedValue / PADDLE_SENS;
+    dayPaddleY = constrain(dayPaddleY, PADDLE_MIN_BND, GRID_SIZE_Y - PADDLE_HEIGHT - PADDLE_MIN_BND);
+    
+    int nightPotValue = analogRead(POT_NIGHT_PIN);
+    float nightMappedValue = map(nightPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
+    nightPaddleY = nightMappedValue / PADDLE_SENS;
+    nightPaddleY = constrain(nightPaddleY, PADDLE_MIN_BND, GRID_SIZE_Y - PADDLE_HEIGHT - PADDLE_MIN_BND);
+}
+
 void setup() {
     Serial.begin(115200);
     pinMode(BTN_DAY_PIN, INPUT_PULLUP);
@@ -569,9 +770,10 @@ void setup() {
     display.println(F("Pong"));
     display.println(F("Wars"));
     display.display();
-    delay(2000);
+    delay(BOOT_DELAY);
     
     InitializeGrid();
+    InitLives();
     lastUpdate = millis();
 }
 
@@ -580,7 +782,7 @@ void loop() {
 
     // handle day button
     bool currentDayButtonState = digitalRead(BTN_DAY_PIN) == LOW;
-    if(currentDayButtonState && !lastDayButtonState && millis() - lastDayButtonPressTime > buttonDebounceDelay) {
+    if(currentDayButtonState && !lastDayButtonState && millis() - lastDayButtonPressTime > BTN_DEBOUNCE) {
         lastDayButtonPressTime = millis();
         
         if(!gameRunning) {
@@ -590,28 +792,22 @@ void loop() {
             nightCircleActive = true;
             dayAngleChanged = true;
             nightAngleChanged = true;
-
-            // init paddle pos with current potentiometer angles
-            int dayPotValue = analogRead(POT_DAY_PIN);
-            float dayMappedValue = map(dayPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
-            dayPaddleY = dayMappedValue / PADDLE_SENS;
-            dayPaddleY = constrain(dayPaddleY, 1.0f, GRID_SIZE_Y - PADDLE_HEIGHT - 1.0f);
-            
-            int nightPotValue = analogRead(POT_NIGHT_PIN);
-            float nightMappedValue = map(nightPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
-            nightPaddleY = nightMappedValue / PADDLE_SENS;
-            nightPaddleY = constrain(nightPaddleY, 1.0f, GRID_SIZE_Y - PADDLE_HEIGHT - 1.0f);
+            dayRespawnEnd = 0;
+            nightRespawnEnd = 0;
+            InitLives();
+            InitPaddles();
         } else {
-            if(dayCircleActive) {
-                // reset day circle
-                dayCircleActive = false;
-                dayCircleStartX = 8.0f;
-                dayCircleStartY = 8.0f;
-                // velocity will be calc when relaunched
-            } else {
-                // launch day circle
-                dayCircleActive = true;
-                dayAngleChanged = true;
+            if(dayLives > 0) {
+                if(dayCircleActive) {
+                    ResetCircle(true);
+                } else {
+                    // launch day circle
+                    if(millis() >= dayRespawnEnd) {
+                        dayCircleActive = true;
+                        dayAngleChanged = true;
+                        dayRespawnEnd = 0;
+                    }
+                }
             }
         }
     }
@@ -619,7 +815,7 @@ void loop() {
 
     // handle night button
     bool currentNightButtonState = digitalRead(BTN_NIGHT_PIN) == LOW;
-    if(currentNightButtonState && !lastNightButtonState && millis() - lastNightButtonPressTime > buttonDebounceDelay) {
+    if(currentNightButtonState && !lastNightButtonState && millis() - lastNightButtonPressTime > BTN_DEBOUNCE) {
         lastNightButtonPressTime = millis();
         
         if(!gameRunning) {
@@ -629,28 +825,22 @@ void loop() {
             nightCircleActive = true;
             dayAngleChanged = true;
             nightAngleChanged = true;
-
-            // init paddle pos with current potentiometer angles
-            int dayPotValue = analogRead(POT_DAY_PIN);
-            float dayMappedValue = map(dayPotValue, ADC_MIN, ADC_MAX, 0, (GRID_SIZE_Y - PADDLE_HEIGHT) * 100);
-            dayPaddleY = dayMappedValue / 100.0f;
-            dayPaddleY = constrain(dayPaddleY, 0.0f, GRID_SIZE_Y - PADDLE_HEIGHT);
-            
-            int nightPotValue = analogRead(POT_NIGHT_PIN);
-            float nightMappedValue = map(nightPotValue, ADC_MIN, ADC_MAX, 0, (GRID_SIZE_Y - PADDLE_HEIGHT) * 100);
-            nightPaddleY = nightMappedValue / 100.0f;
-            nightPaddleY = constrain(nightPaddleY, 0.0f, GRID_SIZE_Y - PADDLE_HEIGHT);
+            dayRespawnEnd = 0;
+            nightRespawnEnd = 0;
+            InitLives();
+            InitPaddles();
         } else {
-            if(nightCircleActive) {
-                // reset night circle
-                nightCircleActive = false;
-                nightCircleStartX = 24.0f;
-                nightCircleStartY = 8.0f;
-                // velocity will be calc when relaunched
-            } else {
-                // launch night circle
-                nightCircleActive = true;
-                nightAngleChanged = true;
+            if(nightLives > 0) {
+                if(nightCircleActive) {
+                    ResetCircle(false);
+                } else {
+                    // launch night circle
+                    if(millis() >= nightRespawnEnd) {
+                        nightCircleActive = true;
+                        nightAngleChanged = true;
+                        nightRespawnEnd = 0;
+                    }
+                }
             }
         }
     }
@@ -662,7 +852,7 @@ void loop() {
         UpdateCircles();
         CountSquares(&dayCount, &nightCount);
         DrawGame();
-        DrawNames();
+        DrawHud();
         display.display();
         lastUpdate = currentTime;
     }

@@ -5,12 +5,15 @@
 #include <Adafruit_GFX.h>
 
 // component defines
-#define BTN_DAY_PIN     5       // D5
-#define BTN_NIGHT_PIN   18      // D18
+#define I2C_SDA_PIN     1       // GPIO1    OLED serial data
+#define I2C_SCL_PIN     2       // GPIO2    OLED serial clock
+#define BUZ_DAY_PIN     7       // GPIO7    BUZZER day
+#define BUZ_NIGHT_PIN   10      // GPIO10   BUZZER night
+#define POT_DAY_PIN     4       // GPIO4    POTENTIOMETER day
+#define POT_NIGHT_PIN   3       // GPIO3    POTENTIOMETER night
+#define BTN_DAY_PIN     6       // GPIO6    BUTTON day
+#define BTN_NIGHT_PIN   20      // GPIO20   BUTTON night
 #define BTN_DEBOUNCE    200     // (both) button debounce delay
-#define BUZZER_PIN      2       // D2 - PWM
-#define POT_DAY_PIN     32      // ADC1_CH5
-#define POT_NIGHT_PIN   33      // ADC1_CH4
 #define POT_THRESHOLD   2       // min change to update circle angle
 #define POT_MIN_ANGLE   0       
 #define POT_MAX_ANGLE   157     // maps to π radians
@@ -263,9 +266,11 @@ void UpdateCircles() {
                             
                             if(millis() > dayCircleCooldownEnd) {
                                 grid[checkY][checkX] = 0; // ...turn it white
-                                tone(BUZZER_PIN, DAY_FREQ);
+                                tone(BUZ_DAY_PIN, DAY_FREQ);
+                                tone(BUZ_NIGHT_PIN, DAY_FREQ);
                                 delay(HIT_DURATION);
-                                tone(BUZZER_PIN, 0);
+                                tone(BUZ_DAY_PIN, 0);
+                                tone(BUZ_NIGHT_PIN, 0);
                                 dayCircleCooldownEnd = millis() + COLLISION_CD;
                             }
                             
@@ -394,9 +399,11 @@ void UpdateCircles() {
                             
                             if(millis() > nightCircleCooldownEnd) {
                                 grid[checkY][checkX] = 1; // ...turn it black
-                                tone(BUZZER_PIN, NIGHT_FREQ);
+                                tone(BUZ_DAY_PIN, NIGHT_FREQ);
+                                tone(BUZ_NIGHT_PIN, NIGHT_FREQ);
                                 delay(HIT_DURATION);
-                                tone(BUZZER_PIN, 0);
+                                tone(BUZ_DAY_PIN, 0);
+                                tone(BUZ_NIGHT_PIN, 0);
                                 nightCircleCooldownEnd = millis() + COLLISION_CD;
                             }
                             
@@ -503,9 +510,11 @@ void ResetCircle(bool isDay) {
     }
     
     // Death sound
-    tone(BUZZER_PIN, DEATH_FREQ);
+    tone(BUZ_DAY_PIN, DEATH_FREQ);
+    tone(BUZ_NIGHT_PIN, DEATH_FREQ);
     delay(DEATH_DURATION);
-    tone(BUZZER_PIN, 0);
+    tone(BUZ_DAY_PIN, 0);
+    tone(BUZ_NIGHT_PIN, 0);
 }
 
 // counts the squares for the counters
@@ -666,7 +675,7 @@ void ReadPotentiometer() {
         // only update if there's a significant change
         if(abs(dayPotValue - lastDayPotValue) > POT_THRESHOLD) {
             // map the potentiometer value (0-1023) to angle (0 to π)
-            float unmappedDayCircleAngle = map(dayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+            float unmappedDayCircleAngle = map(dayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / POT_DIVISOR;
             dayCircleAngle = PI - unmappedDayCircleAngle;   // so the aim is flipped horizontally
             lastDayPotValue = dayPotValue;
         }
@@ -675,7 +684,7 @@ void ReadPotentiometer() {
         // only update if there's a significant change
         if(abs(nightPotValue - lastNightPotValue) > POT_THRESHOLD) {
             // map the potentiometer value (0-1023) to angle (0 to π)
-            nightCircleAngle = map(nightPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+            nightCircleAngle = map(nightPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / POT_DIVISOR;
             lastNightPotValue = nightPotValue;
         }
     } else {
@@ -686,15 +695,15 @@ void ReadPotentiometer() {
         if(abs(dayPotValue - lastDayPotValue) > POT_THRESHOLD) {
             if(!dayCircleActive) {
                 // if the circle isnt active then control both the aim and paddle
-                float unmappedDayCircleAngle = map(dayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+                float unmappedDayCircleAngle = map(dayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / POT_DIVISOR;
                 dayCircleAngle = PI - unmappedDayCircleAngle;
 
-                float mappedValue = map(dayPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
+                float mappedValue = map(dayPotValue, ADC_MIN, ADC_MAX, 0, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
                 dayPaddleY = mappedValue / PADDLE_SENS;
                 dayPaddleY = constrain(dayPaddleY, PADDLE_MIN_BND, GRID_SIZE_Y - PADDLE_HEIGHT - PADDLE_MIN_BND);
                 lastDayPotValue = dayPotValue;
             } else {
-                float mappedValue = map(dayPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
+                float mappedValue = map(dayPotValue, ADC_MIN, ADC_MAX, 0, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
                 dayPaddleY = mappedValue / PADDLE_SENS;
                 dayPaddleY = constrain(dayPaddleY, PADDLE_MIN_BND, GRID_SIZE_Y - PADDLE_HEIGHT - PADDLE_MIN_BND);
             }
@@ -705,7 +714,7 @@ void ReadPotentiometer() {
         if(abs(nightPotValue - lastNightPotValue) > POT_THRESHOLD) {
             if(!nightCircleActive) {
                 // if the circle isnt active then control both the aim and paddle
-                nightCircleAngle = map(nightPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+                nightCircleAngle = map(nightPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / POT_DIVISOR;
 
                 float mappedValue = map(nightPotValue, ADC_MIN, ADC_MAX, 100, (GRID_SIZE_Y - PADDLE_HEIGHT - 1) * 100);
                 nightPaddleY = mappedValue / PADDLE_SENS;
@@ -742,9 +751,9 @@ void setup() {
     Serial.begin(115200);
     pinMode(BTN_DAY_PIN, INPUT_PULLUP);
     pinMode(BTN_NIGHT_PIN, INPUT_PULLUP);
-    pinMode(BUZZER_PIN, OUTPUT);
-    
-    // init random seed
+    pinMode(BUZ_DAY_PIN, OUTPUT);
+    pinMode(BUZ_NIGHT_PIN, OUTPUT);
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
     randomSeed(analogRead(0));
     
     // init display
@@ -758,9 +767,9 @@ void setup() {
     lastNightPotValue = analogRead(POT_NIGHT_PIN);
 
     // calculate initial aim line angles by looking at the potentiometer pos
-    float unmappedDayCircleAngle = map(lastDayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+    float unmappedDayCircleAngle = map(lastDayPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / POT_DIVISOR;
     dayCircleAngle = PI - unmappedDayCircleAngle;
-    nightCircleAngle = map(lastNightPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / 100.0f;
+    nightCircleAngle = map(lastNightPotValue, ADC_MIN, ADC_MAX, POT_MIN_ANGLE, POT_MAX_ANGLE) / POT_DIVISOR;
     
     // boot screen
     display.clearDisplay();

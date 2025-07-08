@@ -1,7 +1,7 @@
 # Pong Wars
 
-[<img src="./media/dayvsnight.gif" alt="Day vs Night GIF" width="400"/>](software/)
-[<img src="./media/device-crop.jpeg" alt="Pong Wars Device" width="460"/>](embedded/)
+[<img src="./media/dayvsnight.gif" alt="Day vs Night GIF" width="380"/>](software/)
+[<img src="./media/device-crop.jpeg" alt="Pong Wars Device" width="440"/>](embedded/)
 
 ## About
 

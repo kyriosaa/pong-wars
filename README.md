@@ -1,23 +1,18 @@
 # Pong Wars
 
-<!-- 🎥 Demo Videos 🎥 -->
-<!-- - [Prototype](link) -->
 <div align="center">
-  <img src="./media/dayvsnight.gif" alt="Day vs Night GIF" width="300">
+  <div style="display: flex; justify-content: space-between; align-items: center; gap: 15px;">
+    <div>
+      <a href="https://github.com/kyriosaa/pong-wars/tree/main/software"><img src="./media/dayvsnight.gif" alt="Day vs Night GIF" width="200"></a>
+        </div>
+        <div>
+      <a href="https://github.com/kyriosaa/pong-wars/tree/main/embedded"><img src="./media/device-crop.jpeg" alt="Pong Wars Device" width="229"></a>
+        </div>
+  </div>
 </div>
 
 ## About
 
-- The Pong Wars project is a simple weekend project that I made in C to practice creating applications with their own window to display graphics.
-<!-- - I also wanted to try putting it on an OLED screen to practice my embedded systems skills so I made a small device for the program to run on using (microcontroller). -->
-- I plan on making an embedded device for the program to run on at a later date.
-- C using Arduino IDE
-- **NOTE**: Because this project is basically two projects in one (Win program & Arduino program), they're separated into two folders. The [software](https://github.com/kyriosaa/pong-wars/tree/main/software) folder contains the Windows program and the [embedded](https://github.com/kyriosaa/pong-wars/tree/main/embedded) folder contains the Arduino program.
+- The Pong Wars project initially started as a simple weekend project that I made in C to practice creating applications with their own window to display graphics. If you'd like more information about the C program, visit the [software](https://github.com/kyriosaa/pong-wars/tree/main/software) folder!.
 
-<!-- ## Features
-
-- asdf
-
-## Hardware Components
-
-- adsf -->
+- From there, I decided to port the program over to an Arduino project and made a physical device for users to play. If you'd like more information about the device & Arduino program, visit the [embedded](https://github.com/kyriosaa/pong-wars/tree/main/embedded) folder!.

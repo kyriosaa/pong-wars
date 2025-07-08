@@ -7,10 +7,10 @@
 // component defines
 #define I2C_SDA_PIN     1       // GPIO1    OLED serial data
 #define I2C_SCL_PIN     2       // GPIO2    OLED serial clock
-#define BUZ_DAY_PIN     7       // GPIO7    BUZZER day
-#define BUZ_NIGHT_PIN   10      // GPIO10   BUZZER night
 #define POT_DAY_PIN     4       // GPIO4    POTENTIOMETER day
 #define POT_NIGHT_PIN   3       // GPIO3    POTENTIOMETER night
+#define BUZ_DAY_PIN     7       // GPIO7    BUZZER day
+#define BUZ_NIGHT_PIN   10      // GPIO10   BUZZER night
 #define BTN_DAY_PIN     6       // GPIO6    BUTTON day
 #define BTN_NIGHT_PIN   20      // GPIO20   BUTTON night
 #define BTN_DEBOUNCE    200     // (both) button debounce delay

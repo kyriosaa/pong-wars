@@ -9,7 +9,6 @@
 
 ## Gameplay
 
-```yml
 A life-based pong game where you take the enemy's territory.
 
 Before the game starts, both players aim their circles using the potentiometer. Once either side's button is pressed, the game starts and both players move their paddle around using the potentiometer to try and take the enemy's territory.
@@ -17,7 +16,7 @@ Before the game starts, both players aim their circles using the potentiometer. 
 At any moment during the game, either player can press their button to reset their circle and re-aim.
 
 Each player has three lives and once all three are gone, the game ends and the player with the most territory wins.
-```
+
 
 ## Features
 

@@ -29,8 +29,11 @@
 #define GRID_SIZE_X     32      // overall length of grid (128x64 OLED -> 32x16 grid)
 #define GRID_SIZE_Y     16      // overall height of grid (128x64 OLED -> 32x16 grid)
 #define CELL_SIZE       4       // size of grid cells
+#define CELL_CENTER     0.5f    // center offset for grid cells
 #define HUD_POS_X       5       // x-axis position for hud
 #define HUD_POS_Y       119     // y-axis position for hud
+#define HEART_WIDTH     7       // width of heart icon
+#define HEART_HEIGHT    6       // height of heart icon
 #define HEART_OFFSET    30      // how far away from edges are the hearts
 #define HEART_SPACING   8       // spacing for the heart icons
 #define OLED_RESET      -1
@@ -45,6 +48,8 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define ANGLE_VAR_STR   0.5f    // angle variation strength for paddle bounces
 #define COLLISION_RAND  0.3f    // rand for cell collisions
 #define COLLISION_CD    100     // circle collision cooldown
+#define COLLISION_DIST  0.5f    // collision detection distance
+#define PUSH_OFFSET     0.1f    // distance to push circle from collision
 #define AIM_LINE_LENGTH 15      // length of the aim line
 #define COLOR_WHITE     SSD1306_WHITE
 #define COLOR_BLACK     SSD1306_BLACK
@@ -261,7 +266,7 @@ void UpdateCircles() {
                         float distance = sqrt(deltaX * deltaX + deltaY * deltaY);
                         
                         // if circle is close enough to cell, then its a collision
-                        if(distance < dayCircleRadius + 0.5f) { 
+                        if(distance < dayCircleRadius + CELL_CENTER) { 
                             shouldDayBounce = true;
                             
                             if(millis() > dayCircleCooldownEnd) {
@@ -283,7 +288,7 @@ void UpdateCircles() {
                             
                             // push circle away from cell
                             if(deltaX != 0 || deltaY != 0) {
-                                float pushDistance = (dayCircleRadius + 0.5f) - distance + 0.1f;
+                                float pushDistance = (dayCircleRadius + CELL_CENTER) - distance + PUSH_OFFSET;
                                 float pushX = (deltaX / distance) * pushDistance;
                                 float pushY = (deltaY / distance) * pushDistance;
                                 dayCircleStartX += pushX;
@@ -315,7 +320,7 @@ void UpdateCircles() {
                 dayCircleVelY = sin(newAngle) * speed;
                 
                 // move circle away from paddle so it doesnt stick
-                dayCircleStartX = dayPaddleX + PADDLE_WIDTH + 0.1f;
+                dayCircleStartX = dayPaddleX + PADDLE_WIDTH + PUSH_OFFSET;
             }
         }
         
@@ -394,7 +399,7 @@ void UpdateCircles() {
                         float distance = sqrt(deltaX * deltaX + deltaY * deltaY);
                         
                         // if circle is close enough to cell, then its a collision
-                        if(distance < nightCircleRadius + 0.5f) { 
+                        if(distance < nightCircleRadius + CELL_CENTER) { 
                             shouldNightBounce = true;
                             
                             if(millis() > nightCircleCooldownEnd) {
@@ -416,7 +421,7 @@ void UpdateCircles() {
                             
                             // Push circle away from cell
                             if(deltaX != 0 || deltaY != 0) {
-                                float pushDistance = (nightCircleRadius + 0.5f) - distance + 0.1f;
+                                float pushDistance = (nightCircleRadius + CELL_CENTER) - distance + PUSH_OFFSET;
                                 float pushX = (deltaX / distance) * pushDistance;
                                 float pushY = (deltaY / distance) * pushDistance;
                                 nightCircleStartX += pushX;
